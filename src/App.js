@@ -71,26 +71,15 @@ const loadProjectsFromSupabase = async () => {
 
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
-    const filePromises = files.map(file => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          resolve({
-            name: file.webkitRelativePath || file.name,
-            size: file.size,
-            type: file.type,
-            lastModified: file.lastModified,
-            isFolder: file.webkitRelativePath ? true : false,
-            content: event.target.result // Base64 encoded content
-          });
-        };
-        reader.readAsDataURL(file);
-      });
-    });
-
-    Promise.all(filePromises).then(fileData => {
-      setNewProject({ ...newProject, files: fileData });
-    });
+    const fileData = files.map(file => ({
+      name: file.webkitRelativePath || file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+      isFolder: file.webkitRelativePath ? true : false
+    }));
+    
+    setNewProject({ ...newProject, files: fileData });
   };
 
   const handleCreateProject = async () => {
@@ -125,7 +114,6 @@ const loadProjectsFromSupabase = async () => {
         size: file.size,
         type: file.type,
         is_folder: file.isFolder,
-        content: file.content,
         last_modified: file.lastModified
       }));
 
