@@ -152,12 +152,15 @@ const loadProjectsFromSupabase = async () => {
       const validFiles = fileData.filter(f => !f.error);
       
       if (validFiles.length === 0 && fileData.length > 0) {
-        alert('⚠️ Hiç dosya okuma başarısız oldu. Lütfen daha küçük dosyalar seçin.');
+        // Content olmayan dosyaları da ekle (meta veri için)
+        setNewProject(prev => ({ ...prev, files: [...prev.files, ...fileData] }));
+        console.log(`⚠️ ${fileData.length} dosya meta verisi eklendi (içerik olmadan)`);
         return;
       }
       
       if (fileData.length > validFiles.length) {
-        alert(`⚠️ ${fileData.length - validFiles.length} dosya okunurken sorun yaşandı.`);
+        const failedCount = fileData.length - validFiles.length;
+        console.warn(`⚠️ ${failedCount} dosya okunurken sorun yaşandı`);
       }
       
       if (validFiles.length > 0) {
@@ -197,19 +200,17 @@ const loadProjectsFromSupabase = async () => {
 
     if (projectError) throw projectError;
 
-    // Dosyaları kaydet (sadece content olan dosyaları)
+    // Dosyaları kaydet (content olmayan dosyaları NULL olarak kaydet)
     if (newProject.files.length > 0) {
-      const filesData = newProject.files
-        .filter(file => file.content !== null && file.content !== undefined)
-        .map(file => ({
-          project_id: projectData.id,
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          is_folder: file.isFolder,
-          content: file.content,
-          last_modified: file.lastModified
-        }));
+      const filesData = newProject.files.map(file => ({
+        project_id: projectData.id,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        is_folder: file.isFolder,
+        content: file.content || null,  // Content NULL ise NULL olarak kaydet
+        last_modified: file.lastModified
+      }));
 
       const { error: filesError } = await supabase
         .from('project_files')
