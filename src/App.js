@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FolderOpen, Download, Clock, Search, Moon, Sun, Code, FileText, Trash2 } from 'lucide-react';
+import { supabase } from './supabaseClient';
 
 export default function ProjectHub() {
   const [darkMode, setDarkMode] = useState(true);
@@ -16,8 +17,42 @@ export default function ProjectHub() {
 
   // Persistent storage'dan projeleri yükle
   useEffect(() => {
-    loadProjects();
-  }, []);
+  loadProjectsFromSupabase();
+}, []);
+
+const loadProjectsFromSupabase = async () => {
+  try {
+    // Projeleri çek
+    const { data: projectsData, error: projectsError } = await supabase
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (projectsError) throw projectsError;
+
+    // Her proje için dosyaları çek
+    const projectsWithFiles = await Promise.all(
+      projectsData.map(async (project) => {
+        const { data: filesData, error: filesError } = await supabase
+          .from('project_files')
+          .select('*')
+          .eq('project_id', project.id);
+
+        if (filesError) throw filesError;
+
+        return {
+          ...project,
+          tags: project.tags || [],
+          files: filesData || []
+        };
+      })
+    );
+
+    setProjects(projectsWithFiles);
+  } catch (error) {
+    console.error('Projeler yüklenirken hata:', error);
+  }
+};
 
   const loadProjects = async () => {
     try {
@@ -31,13 +66,7 @@ export default function ProjectHub() {
   };
 
   const saveProjects = async (updatedProjects) => {
-    try {
-      await window.storage.set('projects-list', JSON.stringify(updatedProjects));
-      setProjects(updatedProjects);
-    } catch (error) {
-      console.error('Projeler kaydedilemedi:', error);
-      alert('Projeler kaydedilirken bir hata oluştu');
-    }
+  setProjects(updatedProjects);
   };
 
   const handleFileUpload = (e) => {
@@ -65,45 +94,86 @@ export default function ProjectHub() {
   };
 
   const handleCreateProject = async () => {
-    if (!newProject.name) {
-      alert('Proje adı gerekli!');
-      return;
+  if (!newProject.name) {
+    alert('Proje adı gerekli!');
+    return;
+  }
+
+  try {
+    // Projeyi kaydet
+    const { data: projectData, error: projectError } = await supabase
+      .from('projects')
+      .insert([
+        {
+          name: newProject.name,
+          description: newProject.description,
+          tags: newProject.tags,
+          platform: navigator.platform,
+          user_id: 'anonymous' // Şimdilik herkes için aynı
+        }
+      ])
+      .select()
+      .single();
+
+    if (projectError) throw projectError;
+
+    // Dosyaları kaydet
+    if (newProject.files.length > 0) {
+      const filesData = newProject.files.map(file => ({
+        project_id: projectData.id,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        is_folder: file.isFolder,
+        content: file.content,
+        last_modified: file.lastModified
+      }));
+
+      const { error: filesError } = await supabase
+        .from('project_files')
+        .insert(filesData);
+
+      if (filesError) throw filesError;
     }
 
-    try {
-      const project = {
-        id: Date.now().toString(),
-        ...newProject,
-        createdAt: new Date().toISOString(),
-        versions: [{
-          id: 1,
-          date: new Date().toISOString(),
-          files: newProject.files
-        }],
-        platform: navigator.platform,
-        lastAccessed: new Date().toISOString()
-      };
-
-      const updatedProjects = [...projects, project];
-      await saveProjects(updatedProjects);
-      setShowUploadModal(false);
-      setNewProject({ name: '', description: '', tags: [], files: [] });
-      alert('Proje başarıyla oluşturuldu!');
-    } catch (error) {
-      console.error('Proje oluşturma hatası:', error);
-      alert('Proje oluşturulurken bir hata oluştu: ' + error.message);
+    // Projeleri yeniden yükle
+    await loadProjectsFromSupabase();
+    
+    setShowUploadModal(false);
+    setNewProject({ name: '', description: '', tags: [], files: [] });
+    alert('Proje başarıyla oluşturuldu! 🎉');
+  } catch (error) {
+    console.error('Proje oluşturulurken hata:', error);
+    alert('Proje oluşturulamadı: ' + error.message);
     }
   };
 
   const handleDeleteProject = async (projectId) => {
-    if (window.confirm('Bu projeyi silmek istediğinize emin misiniz?')) {
+  if (window.confirm('Bu projeyi silmek istediğinize emin misiniz?')) {
+    try {
+      // Supabase'den sil (dosyalar CASCADE ile otomatik silinir)
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId);
+
+      if (error) throw error;
+
+      // Local state'i güncelle
       const updatedProjects = projects.filter(p => p.id !== projectId);
-      await saveProjects(updatedProjects);
+      setProjects(updatedProjects);
+      
       if (selectedProject?.id === projectId) {
         setSelectedProject(null);
       }
+
+      alert('Proje silindi! 🗑️');
+    } catch (error) {
+      console.error('Proje silinirken hata:', error);
+      alert('Proje silinemedi: ' + error.message);
     }
-  };
+  }
+};
 
   const addTag = (tag) => {
     if (tag && !newProject.tags.includes(tag)) {
