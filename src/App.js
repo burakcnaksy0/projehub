@@ -161,9 +161,6 @@ const loadProjectsFromSupabase = async () => {
     }
   };
 
-    document.body.removeChild(link);
-  };
-
   const handleDeleteProject = async (projectId) => {
   if (window.confirm('Bu projeyi silmek istediğinize emin misiniz?')) {
     try {
