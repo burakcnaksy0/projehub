@@ -71,39 +71,106 @@ const loadProjectsFromSupabase = async () => {
   };
 
   const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files);
+    const files = Array.from(e.target.files || []);
+    
+    if (files.length === 0) {
+      console.warn('Dosya seçilmedi');
+      return;
+    }
+    
+    console.log(`${files.length} dosya seçildi`);
+    
     const filePromises = files.map(file => {
       return new Promise((resolve) => {
-        const isFolder = file.webkitRelativePath ? true : false;
-        if (isFolder) {
-          resolve({
-            name: file.webkitRelativePath || file.name,
-            size: file.size,
-            type: file.type,
-            lastModified: file.lastModified,
-            isFolder: true,
-            content: null
-          });
-        } else {
-          const reader = new FileReader();
-          reader.onload = (event) => {
+        try {
+          const isFolder = file.webkitRelativePath ? true : false;
+          if (isFolder) {
             resolve({
               name: file.webkitRelativePath || file.name,
               size: file.size,
               type: file.type,
               lastModified: file.lastModified,
-              isFolder: false,
-              content: event.target.result
+              isFolder: true,
+              content: null
             });
-          };
-          reader.readAsDataURL(file);
+          } else {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              try {
+                resolve({
+                  name: file.webkitRelativePath || file.name,
+                  size: file.size,
+                  type: file.type,
+                  lastModified: file.lastModified,
+                  isFolder: false,
+                  content: event.target.result
+                });
+              } catch (error) {
+                console.error('Dosya okuma hatası:', file.name, error);
+                resolve({
+                  name: file.webkitRelativePath || file.name,
+                  size: file.size,
+                  type: file.type,
+                  lastModified: file.lastModified,
+                  isFolder: false,
+                  content: null,
+                  error: true
+                });
+              }
+            };
+            reader.onerror = (error) => {
+              console.error('Dosya okuma başarısız:', file.name, error);
+              resolve({
+                name: file.webkitRelativePath || file.name,
+                size: file.size,
+                type: file.type,
+                lastModified: file.lastModified,
+                isFolder: false,
+                content: null,
+                error: true
+              });
+            };
+            reader.readAsDataURL(file);
+          }
+        } catch (error) {
+          console.error('Promise hatası:', file.name, error);
+          resolve({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            lastModified: file.lastModified,
+            isFolder: false,
+            content: null,
+            error: true
+          });
         }
       });
     });
 
     Promise.all(filePromises).then(fileData => {
-      setNewProject({ ...newProject, files: fileData });
+      console.log(`${fileData.length} dosya işlendi`);
+      const validFiles = fileData.filter(f => !f.error);
+      
+      if (validFiles.length === 0 && fileData.length > 0) {
+        alert('⚠️ Hiç dosya okuma başarısız oldu. Lütfen daha küçük dosyalar seçin.');
+        return;
+      }
+      
+      if (fileData.length > validFiles.length) {
+        alert(`⚠️ ${fileData.length - validFiles.length} dosya okunurken sorun yaşandı.`);
+      }
+      
+      if (validFiles.length > 0) {
+        setNewProject(prev => ({ ...prev, files: [...prev.files, ...validFiles] }));
+        console.log(`✅ ${validFiles.length} dosya eklendi`);
+      }
+    }).catch(error => {
+      console.error('Dosya işleme hatası:', error);
+      alert('Dosyalar işlenirken bir hata oluştu: ' + error.message);
     });
+    
+    // Input'u sıfırla ki aynı dosya tekrar seçilebilsin
+    e.target.value = '';
   };
 
   const handleCreateProject = async () => {
@@ -130,17 +197,19 @@ const loadProjectsFromSupabase = async () => {
 
     if (projectError) throw projectError;
 
-    // Dosyaları kaydet
+    // Dosyaları kaydet (sadece content olan dosyaları)
     if (newProject.files.length > 0) {
-      const filesData = newProject.files.map(file => ({
-        project_id: projectData.id,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        is_folder: file.isFolder,
-        content: file.content,
-        last_modified: file.lastModified
-      }));
+      const filesData = newProject.files
+        .filter(file => file.content !== null && file.content !== undefined)
+        .map(file => ({
+          project_id: projectData.id,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          is_folder: file.isFolder,
+          content: file.content,
+          last_modified: file.lastModified
+        }));
 
       const { error: filesError } = await supabase
         .from('project_files')
@@ -223,12 +292,24 @@ const loadProjectsFromSupabase = async () => {
       alert('Bu dosyanın içeriği kaydedilmemiş!');
       return;
     }
-    const link = document.createElement('a');
-    link.href = file.content;
-    link.download = file.name.split('/').pop(); // Sadece dosya adını al
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const link = document.createElement('a');
+      link.href = file.content;
+      link.download = file.name.split('/').pop(); // Sadece dosya adını al
+      
+      // Mobil ve desktop uyumlu indirme
+      if (document.body.appendChild) {
+        document.body.appendChild(link);
+      }
+      link.click();
+      if (document.body.removeChild) {
+        document.body.removeChild(link);
+      }
+    } catch (error) {
+      console.error('İndirme hatası:', error);
+      // Fallback: window.open kullan
+      window.open(file.content, '_blank');
+    }
   };
 
   const downloadAllAsZip = async (project) => {
@@ -484,9 +565,10 @@ const loadProjectsFromSupabase = async () => {
                     onChange={handleFileUpload}
                     className="hidden"
                     id="file-upload"
+                    accept="*/*"
                   />
                   
-                  {/* Klasör Seçimi */}
+                  {/* Klasör Seçimi (Mobilde sadece dosya seçebilir) */}
                   <input
                     type="file"
                     webkitdirectory=""
@@ -494,6 +576,7 @@ const loadProjectsFromSupabase = async () => {
                     onChange={handleFileUpload}
                     className="hidden"
                     id="folder-upload"
+                    multiple
                   />
                   
                   <div className="flex gap-3 justify-center mb-2">
