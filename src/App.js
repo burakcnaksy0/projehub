@@ -42,6 +42,7 @@ const loadProjectsFromSupabase = async () => {
 
         return {
           ...project,
+          createdAt: project.created_at,
           tags: project.tags || [],
           files: filesData || []
         };
