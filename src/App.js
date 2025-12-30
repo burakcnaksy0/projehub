@@ -717,7 +717,7 @@ const loadProjectsFromSupabase = async () => {
                         <div className="font-medium truncate">{file.name}</div>
                         <div className="text-sm text-gray-500">
                           {formatFileSize(file.size)}
-                          {!file.content && file.is_folder === false && (
+                          {!file.content && !file.is_folder && (
                             <span className="ml-2 text-orange-400">📵 İçerik yok</span>
                           )}
                         </div>
