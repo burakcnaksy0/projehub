@@ -72,15 +72,38 @@ const loadProjectsFromSupabase = async () => {
 
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
-    const fileData = files.map(file => ({
-      name: file.webkitRelativePath || file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: file.lastModified,
-      isFolder: file.webkitRelativePath ? true : false
-    }));
-    
-    setNewProject({ ...newProject, files: fileData });
+    const filePromises = files.map(file => {
+      return new Promise((resolve) => {
+        const isFolder = file.webkitRelativePath ? true : false;
+        if (isFolder) {
+          resolve({
+            name: file.webkitRelativePath || file.name,
+            size: file.size,
+            type: file.type,
+            lastModified: file.lastModified,
+            isFolder: true,
+            content: null
+          });
+        } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            resolve({
+              name: file.webkitRelativePath || file.name,
+              size: file.size,
+              type: file.type,
+              lastModified: file.lastModified,
+              isFolder: false,
+              content: event.target.result
+            });
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    });
+
+    Promise.all(filePromises).then(fileData => {
+      setNewProject({ ...newProject, files: fileData });
+    });
   };
 
   const handleCreateProject = async () => {
@@ -115,6 +138,7 @@ const loadProjectsFromSupabase = async () => {
         size: file.size,
         type: file.type,
         is_folder: file.isFolder,
+        content: file.content,
         last_modified: file.lastModified
       }));
 
@@ -135,6 +159,9 @@ const loadProjectsFromSupabase = async () => {
     console.error('Proje oluşturulurken hata:', error);
     alert('Proje oluşturulamadı: ' + error.message);
     }
+  };
+
+    document.body.removeChild(link);
   };
 
   const handleDeleteProject = async (projectId) => {
@@ -195,6 +222,10 @@ const loadProjectsFromSupabase = async () => {
   };
 
   const downloadFile = (file) => {
+    if (!file.content) {
+      alert('Bu dosyanın içeriği kaydedilmemiş!');
+      return;
+    }
     const link = document.createElement('a');
     link.href = file.content;
     link.download = file.name.split('/').pop(); // Sadece dosya adını al
