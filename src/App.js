@@ -290,15 +290,15 @@ const loadProjectsFromSupabase = async () => {
 
   const downloadFile = (file) => {
     if (!file.content) {
-      alert('Bu dosyanın içeriği kaydedilmemiş!');
+      console.warn('Bu dosyanın içeriği kaydedilmemiş:', file.name);
+      // Mobilde kaydedilemeyen dosyalar için sessiz şekilde hata dön
       return;
     }
     try {
       const link = document.createElement('a');
       link.href = file.content;
-      link.download = file.name.split('/').pop(); // Sadece dosya adını al
+      link.download = file.name.split('/').pop();
       
-      // Mobil ve desktop uyumlu indirme
       if (document.body.appendChild) {
         document.body.appendChild(link);
       }
@@ -308,7 +308,6 @@ const loadProjectsFromSupabase = async () => {
       }
     } catch (error) {
       console.error('İndirme hatası:', error);
-      // Fallback: window.open kullan
       window.open(file.content, '_blank');
     }
   };
@@ -716,10 +715,24 @@ const loadProjectsFromSupabase = async () => {
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{file.name}</div>
-                        <div className="text-sm text-gray-500">{formatFileSize(file.size)}</div>
+                        <div className="text-sm text-gray-500">
+                          {formatFileSize(file.size)}
+                          {!file.content && file.is_folder === false && (
+                            <span className="ml-2 text-orange-400">📵 İçerik yok</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <button className="p-2 text-blue-500 hover:text-blue-600 flex-shrink-0" onClick={() => downloadFile(file)}>
+                    <button 
+                      className={`p-2 flex-shrink-0 ${
+                        file.content 
+                          ? 'text-blue-500 hover:text-blue-600 cursor-pointer' 
+                          : 'text-gray-400 cursor-not-allowed opacity-50'
+                      }`} 
+                      onClick={() => file.content && downloadFile(file)}
+                      disabled={!file.content}
+                      title={file.content ? 'İndir' : 'Bu dosyanın içeriği kaydedilmemiş'}
+                    >
                       <Download className="w-5 h-5" />
                     </button>
                   </div>
