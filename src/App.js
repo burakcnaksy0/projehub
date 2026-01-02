@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FolderOpen, Download, Clock, Search, Moon, Sun, Code, FileText, Trash2 } from 'lucide-react';
+import { Upload, FolderOpen, Download, Clock, Search, Moon, Sun, FileText, Trash2, LogOut } from 'lucide-react';
 import { supabase } from './supabaseClient';
+import ProjeHubLogo from './components/ProjeHubLogo';
+import Login from './Login';
 
 export default function ProjectHub() {
+  const [session, setSession] = useState(null);
   const [darkMode, setDarkMode] = useState(true);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
@@ -15,45 +19,62 @@ export default function ProjectHub() {
     files: []
   });
 
+  // Session kontrolü
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Persistent storage'dan projeleri yükle
   useEffect(() => {
-  loadProjectsFromSupabase();
-}, []);
+    if (session) {
+      loadProjectsFromSupabase();
+    }
+  }, [session]);
 
-const loadProjectsFromSupabase = async () => {
-  try {
-    // Projeleri çek
-    const { data: projectsData, error: projectsError } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
+  const loadProjectsFromSupabase = async () => {
+    try {
+      // Projeleri çek
+      const { data: projectsData, error: projectsError } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (projectsError) throw projectsError;
+      if (projectsError) throw projectsError;
 
-    // Her proje için dosyaları çek
-    const projectsWithFiles = await Promise.all(
-      projectsData.map(async (project) => {
-        const { data: filesData, error: filesError } = await supabase
-          .from('project_files')
-          .select('*')
-          .eq('project_id', project.id);
+      // Her proje için dosyaları çek
+      const projectsWithFiles = await Promise.all(
+        projectsData.map(async (project) => {
+          const { data: filesData, error: filesError } = await supabase
+            .from('project_files')
+            .select('*')
+            .eq('project_id', project.id);
 
-        if (filesError) throw filesError;
+          if (filesError) throw filesError;
 
-        return {
-          ...project,
-          createdAt: project.created_at,
-          tags: project.tags || [],
-          files: filesData || []
-        };
-      })
-    );
+          return {
+            ...project,
+            createdAt: project.created_at,
+            tags: project.tags || [],
+            files: filesData || []
+          };
+        })
+      );
 
-    setProjects(projectsWithFiles);
-  } catch (error) {
-    console.error('Projeler yüklenirken hata:', error);
-  }
-};
+      setProjects(projectsWithFiles);
+    } catch (error) {
+      console.error('Projeler yüklenirken hata:', error);
+    }
+  };
 
   const loadProjects = async () => {
     try {
@@ -67,19 +88,30 @@ const loadProjectsFromSupabase = async () => {
   };
 
   const saveProjects = async (updatedProjects) => {
-  setProjects(updatedProjects);
+    setProjects(updatedProjects);
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = (e, isUpdate = false) => {
     const files = Array.from(e.target.files || []);
-    
-    if (files.length === 0) {
-      console.warn('Dosya seçilmedi');
-      return;
-    }
-    
-    console.log(`${files.length} dosya seçildi`);
-    
+
+    if (files.length === 0) return;
+
+    processFiles(files).then(fileData => {
+      const validFiles = fileData.filter(f => !f.error);
+
+      if (isUpdate && selectedProject) {
+        handleAddFilesToProject(validFiles);
+      } else {
+        if (validFiles.length > 0) {
+          setNewProject(prev => ({ ...prev, files: [...prev.files, ...validFiles] }));
+        }
+      }
+    });
+
+    e.target.value = '';
+  };
+
+  const processFiles = (files) => {
     const filePromises = files.map(file => {
       return new Promise((resolve) => {
         try {
@@ -107,156 +139,148 @@ const loadProjectsFromSupabase = async () => {
                 });
               } catch (error) {
                 console.error('Dosya okuma hatası:', file.name, error);
-                resolve({
-                  name: file.webkitRelativePath || file.name,
-                  size: file.size,
-                  type: file.type,
-                  lastModified: file.lastModified,
-                  isFolder: false,
-                  content: null,
-                  error: true
-                });
+                resolve({ name: file.name, error: true });
               }
             };
             reader.onerror = (error) => {
               console.error('Dosya okuma başarısız:', file.name, error);
-              resolve({
-                name: file.webkitRelativePath || file.name,
-                size: file.size,
-                type: file.type,
-                lastModified: file.lastModified,
-                isFolder: false,
-                content: null,
-                error: true
-              });
+              resolve({ name: file.name, error: true });
             };
             reader.readAsDataURL(file);
           }
         } catch (error) {
           console.error('Promise hatası:', file.name, error);
-          resolve({
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            lastModified: file.lastModified,
-            isFolder: false,
-            content: null,
-            error: true
-          });
+          resolve({ name: file.name, error: true });
         }
       });
     });
-
-    Promise.all(filePromises).then(fileData => {
-      console.log(`${fileData.length} dosya işlendi`);
-      const validFiles = fileData.filter(f => !f.error);
-      
-      if (validFiles.length === 0 && fileData.length > 0) {
-        // Content olmayan dosyaları da ekle (meta veri için)
-        setNewProject(prev => ({ ...prev, files: [...prev.files, ...fileData] }));
-        console.log(`⚠️ ${fileData.length} dosya meta verisi eklendi (içerik olmadan)`);
-        return;
-      }
-      
-      if (fileData.length > validFiles.length) {
-        const failedCount = fileData.length - validFiles.length;
-        console.warn(`⚠️ ${failedCount} dosya okunurken sorun yaşandı`);
-      }
-      
-      if (validFiles.length > 0) {
-        setNewProject(prev => ({ ...prev, files: [...prev.files, ...validFiles] }));
-        console.log(`✅ ${validFiles.length} dosya eklendi`);
-      }
-    }).catch(error => {
-      console.error('Dosya işleme hatası:', error);
-      alert('Dosyalar işlenirken bir hata oluştu: ' + error.message);
-    });
-    
-    // Input'u sıfırla ki aynı dosya tekrar seçilebilsin
-    e.target.value = '';
+    return Promise.all(filePromises);
   };
 
-  const handleCreateProject = async () => {
-  if (!newProject.name) {
-    alert('Proje adı gerekli!');
-    return;
-  }
+  const handleAddFilesToProject = async (newFiles) => {
+    if (!selectedProject || newFiles.length === 0) return;
 
-  try {
-    // Projeyi kaydet
-    const { data: projectData, error: projectError } = await supabase
-      .from('projects')
-      .insert([
-        {
-          name: newProject.name,
-          description: newProject.description,
-          tags: newProject.tags,
-          platform: navigator.platform,
-          user_id: 'anonymous' // Şimdilik herkes için aynı
-        }
-      ])
-      .select()
-      .single();
-
-    if (projectError) throw projectError;
-
-    // Dosyaları kaydet (content olmayan dosyaları NULL olarak kaydet)
-    if (newProject.files.length > 0) {
-      const filesData = newProject.files.map(file => ({
-        project_id: projectData.id,
+    setIsUpdating(true);
+    try {
+      const filesData = newFiles.map(file => ({
+        project_id: selectedProject.id,
         name: file.name,
         size: file.size,
         type: file.type,
         is_folder: file.isFolder,
-        content: file.content || null,  // Content NULL ise NULL olarak kaydet
+        content: file.content || null,
         last_modified: file.lastModified
       }));
 
-      const { error: filesError } = await supabase
+      const { error } = await supabase
         .from('project_files')
         .insert(filesData);
 
-      if (filesError) throw filesError;
+      if (error) throw error;
+
+      // Refresh project data
+      const { data: updatedFiles } = await supabase
+        .from('project_files')
+        .select('*')
+        .eq('project_id', selectedProject.id);
+
+      // Update local state
+      const updatedProject = { ...selectedProject, files: updatedFiles || [] };
+      setSelectedProject(updatedProject);
+
+      // Update global projects list
+      setProjects(prev => prev.map(p => p.id === selectedProject.id ? updatedProject : p));
+
+      alert(`${newFiles.length} dosya eklendi!`);
+    } catch (error) {
+      console.error('Dosya ekleme hatası:', error);
+      alert('Dosyalar eklenirken hata oluştu: ' + error.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (!newProject.name) {
+      alert('Proje adı gerekli!');
+      return;
     }
 
-    // Projeleri yeniden yükle
-    await loadProjectsFromSupabase();
-    
-    setShowUploadModal(false);
-    setNewProject({ name: '', description: '', tags: [], files: [] });
-    alert('Proje başarıyla oluşturuldu! 🎉');
-  } catch (error) {
-    console.error('Proje oluşturulurken hata:', error);
-    alert('Proje oluşturulamadı: ' + error.message);
+    try {
+      // Projeyi kaydet
+      const { data: projectData, error: projectError } = await supabase
+        .from('projects')
+        .insert([
+          {
+            name: newProject.name,
+            description: newProject.description,
+            tags: newProject.tags,
+            platform: navigator.platform,
+            user_id: session.user.id
+          }
+        ])
+        .select()
+        .single();
+
+      if (projectError) throw projectError;
+
+      // Dosyaları kaydet (content olmayan dosyaları NULL olarak kaydet)
+      if (newProject.files.length > 0) {
+        const filesData = newProject.files.map(file => ({
+          project_id: projectData.id,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          is_folder: file.isFolder,
+          content: file.content || null,  // Content NULL ise NULL olarak kaydet
+          last_modified: file.lastModified
+        }));
+
+        const { error: filesError } = await supabase
+          .from('project_files')
+          .insert(filesData);
+
+        if (filesError) throw filesError;
+      }
+
+      // Projeleri yeniden yükle
+      await loadProjectsFromSupabase();
+
+      setShowUploadModal(false);
+      setNewProject({ name: '', description: '', tags: [], files: [] });
+      alert('Proje başarıyla oluşturuldu! 🎉');
+    } catch (error) {
+      console.error('Proje oluşturulurken hata:', error);
+      alert('Proje oluşturulamadı: ' + error.message);
     }
   };
 
   const handleDeleteProject = async (projectId) => {
-  if (window.confirm('Bu projeyi silmek istediğinize emin misiniz?')) {
-    try {
-      // Supabase'den sil (dosyalar CASCADE ile otomatik silinir)
-      const { error } = await supabase
-        .from('projects')
-        .delete()
-        .eq('id', projectId);
+    if (window.confirm('Bu projeyi silmek istediğinize emin misiniz?')) {
+      try {
+        // Supabase'den sil (dosyalar CASCADE ile otomatik silinir)
+        const { error } = await supabase
+          .from('projects')
+          .delete()
+          .eq('id', projectId);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      // Local state'i güncelle
-      const updatedProjects = projects.filter(p => p.id !== projectId);
-      setProjects(updatedProjects);
-      
-      if (selectedProject?.id === projectId) {
-        setSelectedProject(null);
+        // Local state'i güncelle
+        const updatedProjects = projects.filter(p => p.id !== projectId);
+        setProjects(updatedProjects);
+
+        if (selectedProject?.id === projectId) {
+          setSelectedProject(null);
+        }
+
+        alert('Proje silindi! 🗑️');
+      } catch (error) {
+        console.error('Proje silinirken hata:', error);
+        alert('Proje silinemedi: ' + error.message);
       }
-
-      alert('Proje silindi! 🗑️');
-    } catch (error) {
-      console.error('Proje silinirken hata:', error);
-      alert('Proje silinemedi: ' + error.message);
     }
-  }
-};
+  };
 
   const addTag = (tag) => {
     if (tag && !newProject.tags.includes(tag)) {
@@ -298,7 +322,7 @@ const loadProjectsFromSupabase = async () => {
       const link = document.createElement('a');
       link.href = file.content;
       link.download = file.name.split('/').pop();
-      
+
       if (document.body.appendChild) {
         document.body.appendChild(link);
       }
@@ -317,7 +341,7 @@ const loadProjectsFromSupabase = async () => {
       // JSZip kütüphanesini dinamik olarak yükle
       const script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-      
+
       script.onload = async () => {
         try {
           const JSZip = window.JSZip;
@@ -359,33 +383,47 @@ const loadProjectsFromSupabase = async () => {
     }
   };
 
+  if (!session) {
+    return <Login />;
+  }
+
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {/* Header */}
-      <header className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b sticky top-0 z-10`}>
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <Code className="w-6 h-6 text-white" />
+      <header className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b sticky top-0 z-10 safe-area-top`}>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-0">
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+            <div className="flex items-center gap-3">
+              <ProjeHubLogo />
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold">ProjeHub</h1>
+                <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Her platformdan erişilebilir projeler</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">ProjeHub</h1>
-              <p className="text-sm text-gray-500">Her platformdan erişilebilir projeler</p>
-            </div>
+            {/* Mobile-only menu items could go here if needed */}
           </div>
-          <div className="flex items-center gap-3">
+
+          <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'}`}
+              className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} active:scale-95 transition-transform`}
+              title={darkMode ? "Aydınlık Mod" : "Karanlık Mod"}
             >
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
             <button
+              onClick={() => supabase.auth.signOut()}
+              className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 hover:bg-gray-600 text-red-400' : 'bg-gray-100 hover:bg-gray-200 text-red-600'} active:scale-95 transition-transform`}
+              title="Çıkış Yap"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+            <button
               onClick={() => setShowUploadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all active:scale-95 text-sm sm:text-base"
             >
               <Upload className="w-4 h-4" />
-              Yeni Proje
+              <span className="hidden xs:inline">Yeni</span> Proje
             </button>
           </div>
         </div>
@@ -400,9 +438,8 @@ const loadProjectsFromSupabase = async () => {
             placeholder="Proje ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className={`w-full pl-10 pr-4 py-2 rounded-lg ${
-              darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
-            } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+            className={`w-full pl-10 pr-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'
+              } focus:outline-none focus:ring-2 focus:ring-blue-500`}
           />
         </div>
 
@@ -424,18 +461,17 @@ const loadProjectsFromSupabase = async () => {
             {filteredProjects.map((project) => (
               <div
                 key={project.id}
-                className={`${
-                  darkMode ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-gray-50'
-                } rounded-lg p-6 shadow-lg cursor-pointer transition-all hover:scale-105`}
+                className={`${darkMode ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-gray-50'
+                  } rounded-lg p-6 shadow-lg cursor-pointer transition-all hover:scale-105`}
                 onClick={() => setSelectedProject(project)}
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
                       <FileText className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-lg">{project.name}</h3>
+                      <h3 className="font-bold text-lg break-all line-clamp-1">{project.name}</h3>
                       <p className="text-sm text-gray-500">{project.files.length} dosya</p>
                     </div>
                   </div>
@@ -444,14 +480,14 @@ const loadProjectsFromSupabase = async () => {
                       e.stopPropagation();
                       handleDeleteProject(project.id);
                     }}
-                    className="text-red-500 hover:text-red-600 p-1"
+                    className="text-red-500 hover:text-red-600 p-2 -mr-2 active:scale-95 transition-transform"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
-                
+
                 <p className="text-sm text-gray-400 mb-4 line-clamp-2">{project.description}</p>
-                
+
                 <div className="flex flex-wrap gap-2 mb-4">
                   {project.tags.map((tag, idx) => (
                     <span
@@ -482,10 +518,18 @@ const loadProjectsFromSupabase = async () => {
 
       {/* Upload Modal */}
       {showUploadModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto`}>
-            <h2 className="text-2xl font-bold mb-6">Yeni Proje Oluştur</h2>
-            
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto">
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} sm:rounded-xl p-4 sm:p-6 w-full max-w-2xl min-h-screen sm:min-h-0 overflow-y-auto`}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Yeni Proje Oluştur</h2>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-gray-500 sm:hidden p-2"
+              >
+                ×
+              </button>
+            </div>
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Proje Adı *</label>
@@ -493,9 +537,8 @@ const loadProjectsFromSupabase = async () => {
                   type="text"
                   value={newProject.name}
                   onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                  className={`w-full px-4 py-2 rounded-lg ${
-                    darkMode ? 'bg-gray-700' : 'bg-gray-100'
-                  } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                  className={`w-full px-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'
+                    } focus:outline-none focus:ring-2 focus:ring-blue-500`}
                   placeholder="Proje adını girin"
                 />
               </div>
@@ -505,9 +548,8 @@ const loadProjectsFromSupabase = async () => {
                 <textarea
                   value={newProject.description}
                   onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                  className={`w-full px-4 py-2 rounded-lg ${
-                    darkMode ? 'bg-gray-700' : 'bg-gray-100'
-                  } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                  className={`w-full px-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'
+                    } focus:outline-none focus:ring-2 focus:ring-blue-500`}
                   rows="3"
                   placeholder="Projenizi tanımlayın"
                 />
@@ -524,9 +566,8 @@ const loadProjectsFromSupabase = async () => {
                         e.target.value = '';
                       }
                     }}
-                    className={`flex-1 px-4 py-2 rounded-lg ${
-                      darkMode ? 'bg-gray-700' : 'bg-gray-100'
-                    } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    className={`flex-1 px-4 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'
+                      } focus:outline-none focus:ring-2 focus:ring-blue-500`}
                     placeholder="Etiket ekle (Enter'a basın)"
                   />
                 </div>
@@ -553,11 +594,10 @@ const loadProjectsFromSupabase = async () => {
 
               <div>
                 <label className="block text-sm font-medium mb-2">Dosyalar ve Klasörler</label>
-                <div className={`border-2 border-dashed ${
-                  darkMode ? 'border-gray-600' : 'border-gray-300'
-                } rounded-lg p-8 text-center`}>
+                <div className={`border-2 border-dashed ${darkMode ? 'border-gray-600' : 'border-gray-300'
+                  } rounded-lg p-8 text-center`}>
                   <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                  
+
                   {/* Dosya Seçimi */}
                   <input
                     type="file"
@@ -567,7 +607,7 @@ const loadProjectsFromSupabase = async () => {
                     id="file-upload"
                     accept="*/*"
                   />
-                  
+
                   {/* Klasör Seçimi (Mobilde sadece dosya seçebilir) */}
                   <input
                     type="file"
@@ -578,22 +618,24 @@ const loadProjectsFromSupabase = async () => {
                     id="folder-upload"
                     multiple
                   />
-                  
-                  <div className="flex gap-3 justify-center mb-2">
+
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center mb-2">
                     <label
                       htmlFor="file-upload"
-                      className="cursor-pointer px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
+                      className="cursor-pointer px-4 py-3 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition active:scale-95 flex items-center justify-center gap-2"
                     >
-                      📄 Dosya Seç
+                      <Upload className="w-5 h-5" />
+                      Dosya / Fotoğraf Seç
                     </label>
                     <label
                       htmlFor="folder-upload"
-                      className="cursor-pointer px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition"
+                      className="cursor-pointer px-4 py-3 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition active:scale-95 flex items-center justify-center gap-2 hidden sm:flex"
                     >
-                      📁 Klasör Seç
+                      <FolderOpen className="w-5 h-5" />
+                      Klasör Seç (PC)
                     </label>
                   </div>
-                  <p className="text-sm text-gray-500 mt-2">veya dosyaları buraya sürükleyin</p>
+                  <p className="text-sm text-gray-500 mt-2">Mobilde birden fazla fotoğraf seçebilirsiniz</p>
                 </div>
                 {newProject.files.length > 0 && (
                   <div className="mt-4 space-y-2">
@@ -607,9 +649,8 @@ const loadProjectsFromSupabase = async () => {
                       {newProject.files.map((file, idx) => (
                         <div
                           key={idx}
-                          className={`flex items-center justify-between p-3 ${
-                            darkMode ? 'bg-gray-700' : 'bg-gray-100'
-                          } rounded-lg`}
+                          className={`flex items-center justify-between p-3 ${darkMode ? 'bg-gray-700' : 'bg-gray-100'
+                            } rounded-lg`}
                         >
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             {file.isFolder ? (
@@ -640,9 +681,8 @@ const loadProjectsFromSupabase = async () => {
                   setShowUploadModal(false);
                   setNewProject({ name: '', description: '', tags: [], files: [] });
                 }}
-                className={`px-4 py-2 ${
-                  darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'
-                } rounded-lg font-medium transition`}
+                className={`px-4 py-2 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'
+                  } rounded-lg font-medium transition`}
               >
                 İptal
               </button>
@@ -653,16 +693,16 @@ const loadProjectsFromSupabase = async () => {
 
       {/* Project Detail Modal */}
       {selectedProject && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto`}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto">
+          <div className={`${darkMode ? 'bg-gray-800' : 'bg-white'} sm:rounded-xl p-4 sm:p-6 w-full max-w-4xl min-h-screen sm:min-h-0 overflow-y-auto`}>
             <div className="flex items-start justify-between mb-6">
-              <div>
-                <h2 className="text-3xl font-bold mb-2">{selectedProject.name}</h2>
-                <p className="text-gray-500">{selectedProject.description}</p>
+              <div className="pr-8">
+                <h2 className="text-2xl sm:text-3xl font-bold mb-2 break-all">{selectedProject.name}</h2>
+                <p className="text-gray-500 text-sm sm:text-base">{selectedProject.description}</p>
               </div>
               <button
                 onClick={() => setSelectedProject(null)}
-                className="text-gray-500 hover:text-gray-400 text-2xl"
+                className="text-gray-500 hover:text-gray-400 text-3xl p-2 active:scale-95"
               >
                 ×
               </button>
@@ -698,14 +738,32 @@ const loadProjectsFromSupabase = async () => {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold mb-3">Dosyalar ({selectedProject.files.length})</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold">Dosyalar ({selectedProject.files.length})</h3>
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    id="update-file-upload"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, true)}
+                    disabled={isUpdating}
+                  />
+                  <label
+                    htmlFor="update-file-upload"
+                    className={`flex items-center gap-2 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium cursor-pointer transition ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    {isUpdating ? 'Yükleniyor...' : 'Dosya Ekle'}
+                  </label>
+                </div>
+              </div>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {selectedProject.files.map((file, idx) => (
                   <div
                     key={idx}
-                    className={`flex items-center justify-between p-4 ${
-                      darkMode ? 'bg-gray-700' : 'bg-gray-100'
-                    } rounded-lg`}
+                    className={`flex items-center justify-between p-4 ${darkMode ? 'bg-gray-700' : 'bg-gray-100'
+                      } rounded-lg`}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {file.isFolder ? (
@@ -723,12 +781,11 @@ const loadProjectsFromSupabase = async () => {
                         </div>
                       </div>
                     </div>
-                    <button 
-                      className={`p-2 flex-shrink-0 ${
-                        file.content 
-                          ? 'text-blue-500 hover:text-blue-600 cursor-pointer' 
-                          : 'text-gray-400 cursor-not-allowed opacity-50'
-                      }`} 
+                    <button
+                      className={`p-2 flex-shrink-0 ${file.content
+                        ? 'text-blue-500 hover:text-blue-600 cursor-pointer'
+                        : 'text-gray-400 cursor-not-allowed opacity-50'
+                        }`}
                       onClick={() => file.content && downloadFile(file)}
                       disabled={!file.content}
                       title={file.content ? 'İndir' : 'Bu dosyanın içeriği kaydedilmemiş'}
@@ -740,19 +797,18 @@ const loadProjectsFromSupabase = async () => {
               </div>
             </div>
 
-            <div className="mt-6 flex gap-3">
-              <button 
+            <div className="mt-6 flex flex-col sm:flex-row gap-3">
+              <button
                 onClick={() => downloadAllAsZip(selectedProject)}
-                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-3 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition active:scale-95 flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />
                 Tümünü İndir (ZIP)
               </button>
               <button
                 onClick={() => setSelectedProject(null)}
-                className={`px-4 py-2 ${
-                  darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'
-                } rounded-lg font-medium transition`}
+                className={`px-4 py-3 sm:py-2 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'
+                  } rounded-lg font-medium transition active:scale-95`}
               >
                 Kapat
               </button>
