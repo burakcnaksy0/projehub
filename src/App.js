@@ -111,46 +111,106 @@ export default function ProjectHub() {
     e.target.value = '';
   };
 
+  // Görsel sıkıştırma fonksiyonu
+  const compressImage = async (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Max boyut 1024px olsun (oranı koru)
+          const MAX_SIZE = 1024;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // JPEG olarak %70 kalitede sıkıştır
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          resolve(compressedDataUrl);
+        };
+        img.src = event.target.result;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const processFiles = (files) => {
     const filePromises = files.map(file => {
-      return new Promise((resolve) => {
+      return new Promise(async (resolve) => {
         try {
           const isFolder = file.webkitRelativePath ? true : false;
           if (isFolder) {
             resolve({
               name: file.webkitRelativePath || file.name,
               size: file.size,
-              type: file.type,
+              type: file.type || 'application/x-directory',
               lastModified: file.lastModified,
               isFolder: true,
               content: null
             });
           } else {
+            // Eğer görsel ise sıkıştır
+            if (file.type.startsWith('image/')) {
+              const compressedContent = await compressImage(file);
+              if (compressedContent) {
+                // Base64 boyutunu hesapla (yaklaşık)
+                const sizeInBytes = Math.ceil((compressedContent.length - 'data:image/jpeg;base64,'.length) * 3 / 4);
+                resolve({
+                  name: file.name,
+                  size: sizeInBytes,
+                  type: 'image/jpeg', // Artık jpeg oldu
+                  lastModified: Date.now(),
+                  isFolder: false,
+                  content: compressedContent
+                });
+                return;
+              }
+            }
+
+            // Görsel değilse veya sıkıştırma başarısızsa normal oku
             const reader = new FileReader();
             reader.onload = (event) => {
               try {
                 resolve({
                   name: file.webkitRelativePath || file.name,
                   size: file.size,
-                  type: file.type,
+                  type: file.type || 'application/octet-stream',
                   lastModified: file.lastModified,
                   isFolder: false,
                   content: event.target.result
                 });
               } catch (error) {
                 console.error('Dosya okuma hatası:', file.name, error);
-                resolve({ name: file.name, error: true });
+                resolve({ name: file.name, error: true, errorMessage: error.message });
               }
             };
             reader.onerror = (error) => {
               console.error('Dosya okuma başarısız:', file.name, error);
-              resolve({ name: file.name, error: true });
+              resolve({ name: file.name, error: true, errorMessage: 'Okuma hatası' });
             };
             reader.readAsDataURL(file);
           }
         } catch (error) {
           console.error('Promise hatası:', file.name, error);
-          resolve({ name: file.name, error: true });
+          resolve({ name: file.name, error: true, errorMessage: error.message });
         }
       });
     });
@@ -162,21 +222,29 @@ export default function ProjectHub() {
 
     setIsUpdating(true);
     try {
-      const filesData = newFiles.map(file => ({
-        project_id: selectedProject.id,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        is_folder: file.isFolder,
-        content: file.content || null,
-        last_modified: file.lastModified
-      }));
+      // Parçalı yükleme yap
+      const BATCH_SIZE = 3;
+      for (let i = 0; i < newFiles.length; i += BATCH_SIZE) {
+        const batch = newFiles.slice(i, i + BATCH_SIZE);
+        const filesData = batch.map(file => ({
+          project_id: selectedProject.id,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          is_folder: file.isFolder,
+          content: file.content || null,
+          last_modified: file.lastModified
+        }));
 
-      const { error } = await supabase
-        .from('project_files')
-        .insert(filesData);
+        const { error } = await supabase
+          .from('project_files')
+          .insert(filesData);
 
-      if (error) throw error;
+        if (error) {
+          console.error('Paket yükleme hatası:', error);
+          throw error;
+        }
+      }
 
       // Refresh project data
       const { data: updatedFiles } = await supabase
@@ -225,22 +293,34 @@ export default function ProjectHub() {
       if (projectError) throw projectError;
 
       // Dosyaları kaydet (content olmayan dosyaları NULL olarak kaydet)
+      // Dosyaları parçalar halinde kaydet (her seferinde 5 dosya)
       if (newProject.files.length > 0) {
-        const filesData = newProject.files.map(file => ({
-          project_id: projectData.id,
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          is_folder: file.isFolder,
-          content: file.content || null,  // Content NULL ise NULL olarak kaydet
-          last_modified: file.lastModified
-        }));
+        const BATCH_SIZE = 5;
+        const filesToUpload = newProject.files;
 
-        const { error: filesError } = await supabase
-          .from('project_files')
-          .insert(filesData);
+        for (let i = 0; i < filesToUpload.length; i += BATCH_SIZE) {
+          const batch = filesToUpload.slice(i, i + BATCH_SIZE);
 
-        if (filesError) throw filesError;
+          const filesData = batch.map(file => ({
+            project_id: projectData.id,
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream',
+            is_folder: file.isFolder,
+            content: file.content || null,
+            last_modified: file.lastModified
+          }));
+
+          const { error: batchError } = await supabase
+            .from('project_files')
+            .insert(filesData);
+
+          if (batchError) {
+            console.error('Dosya paketi yükleme hatası:', batchError);
+            alert(`Bazı dosyalar yüklenemedi: ${batchError.message}`);
+            // Devam et, diğer paketleri dene
+          }
+        }
       }
 
       // Projeleri yeniden yükle
