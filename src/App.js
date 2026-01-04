@@ -678,7 +678,7 @@ export default function ProjectHub() {
                   } rounded-lg p-8 text-center`}>
                   <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
 
-                  {/* Dosya Seçimi - Mobil için optimize edilmiş */}
+                  {/* Dosya/Galeri Seçimi */}
                   <input
                     type="file"
                     multiple
@@ -686,7 +686,16 @@ export default function ProjectHub() {
                     className="hidden"
                     id="file-upload"
                     accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                  />
+
+                  {/* Kamera ile Fotoğraf Çekme (Sadece Mobil) */}
+                  <input
+                    type="file"
+                    accept="image/*"
                     capture="environment"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="camera-upload"
                   />
 
                   {/* Klasör Seçimi (Sadece Desktop) */}
@@ -706,17 +715,31 @@ export default function ProjectHub() {
                       className="cursor-pointer px-4 py-3 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition active:scale-95 flex items-center justify-center gap-2"
                     >
                       <Upload className="w-5 h-5" />
-                      Dosya / Fotoğraf Seç
+                      <span className="sm:hidden">Galeri / Dosya</span>
+                      <span className="hidden sm:inline">Dosya Seç</span>
+                    </label>
+                    <label
+                      htmlFor="camera-upload"
+                      className="cursor-pointer px-4 py-3 sm:py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition active:scale-95 flex items-center justify-center gap-2 sm:hidden"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Fotoğraf Çek
                     </label>
                     <label
                       htmlFor="folder-upload"
                       className="cursor-pointer px-4 py-3 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition active:scale-95 flex items-center justify-center gap-2 hidden sm:flex"
                     >
                       <FolderOpen className="w-5 h-5" />
-                      Klasör Seç (PC)
+                      Klasör Seç
                     </label>
                   </div>
-                  <p className="text-sm text-gray-500 mt-2">📱 Mobilde kameradan fotoğraf çekebilir veya galeriden seçebilirsiniz</p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    <span className="sm:hidden">📱 Galeriden seç veya kamera ile çek</span>
+                    <span className="hidden sm:inline">Dosya veya klasör seçebilirsiniz</span>
+                  </p>
                 </div>
                 {newProject.files.length > 0 && (
                   <div className="mt-4 space-y-2">
@@ -822,6 +845,7 @@ export default function ProjectHub() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold">Dosyalar ({selectedProject.files.length})</h3>
                 <div className="flex gap-2">
+                  {/* Galeri/Dosya Seçimi */}
                   <input
                     type="file"
                     id="update-file-upload"
@@ -830,14 +854,34 @@ export default function ProjectHub() {
                     onChange={(e) => handleFileUpload(e, true)}
                     disabled={isUpdating}
                     accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                  />
+                  {/* Kamera */}
+                  <input
+                    type="file"
+                    id="update-camera-upload"
+                    accept="image/*"
                     capture="environment"
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, true)}
+                    disabled={isUpdating}
                   />
                   <label
                     htmlFor="update-file-upload"
-                    className={`flex items-center gap-2 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium cursor-pointer transition ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium cursor-pointer transition ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <Upload className="w-4 h-4" />
-                    {isUpdating ? 'Yükleniyor...' : 'Dosya Ekle'}
+                    <span className="hidden sm:inline">{isUpdating ? 'Yükleniyor...' : 'Dosya Ekle'}</span>
+                    <span className="sm:hidden">Galeri</span>
+                  </label>
+                  <label
+                    htmlFor="update-camera-upload"
+                    className={`flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium cursor-pointer transition sm:hidden ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className="sm:hidden">Kamera</span>
                   </label>
                 </div>
               </div>
