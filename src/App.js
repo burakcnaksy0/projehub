@@ -678,17 +678,18 @@ export default function ProjectHub() {
                   } rounded-lg p-8 text-center`}>
                   <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
 
-                  {/* Dosya Seçimi */}
+                  {/* Dosya Seçimi - Mobil için optimize edilmiş */}
                   <input
                     type="file"
                     multiple
                     onChange={handleFileUpload}
                     className="hidden"
                     id="file-upload"
-                    accept="*/*"
+                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                    capture="environment"
                   />
 
-                  {/* Klasör Seçimi (Mobilde sadece dosya seçebilir) */}
+                  {/* Klasör Seçimi (Sadece Desktop) */}
                   <input
                     type="file"
                     webkitdirectory=""
@@ -715,7 +716,7 @@ export default function ProjectHub() {
                       Klasör Seç (PC)
                     </label>
                   </div>
-                  <p className="text-sm text-gray-500 mt-2">Mobilde birden fazla fotoğraf seçebilirsiniz</p>
+                  <p className="text-sm text-gray-500 mt-2">📱 Mobilde kameradan fotoğraf çekebilir veya galeriden seçebilirsiniz</p>
                 </div>
                 {newProject.files.length > 0 && (
                   <div className="mt-4 space-y-2">
@@ -828,6 +829,8 @@ export default function ProjectHub() {
                     className="hidden"
                     onChange={(e) => handleFileUpload(e, true)}
                     disabled={isUpdating}
+                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                    capture="environment"
                   />
                   <label
                     htmlFor="update-file-upload"
