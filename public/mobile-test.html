@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>Mobil Dosya Yükleme Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 2px solid #007AFF;
+            border-radius: 10px;
+        }
+
+        button,
+        label {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            font-size: 16px;
+            border-radius: 8px;
+            border: none;
+            color: white;
+            cursor: pointer;
+        }
+
+        .btn-gallery {
+            background: #007AFF;
+        }
+
+        .btn-camera {
+            background: #34C759;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        #log {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>📱 Mobil Dosya Yükleme Test</h1>
+
+    <div class="test-section">
+        <h3>Test 1: Galeri/Dosya Seçimi</h3>
+        <input type="file" id="gallery-input" multiple accept="image/*,video/*,.pdf">
+        <label for="gallery-input" class="btn-gallery">📁 Galeri / Dosya Seç</label>
+    </div>
+
+    <div class="test-section">
+        <h3>Test 2: Kamera</h3>
+        <input type="file" id="camera-input" accept="image/*" capture="environment">
+        <label for="camera-input" class="btn-camera">📸 Fotoğraf Çek</label>
+    </div>
+
+    <div class="test-section">
+        <h3>Test 3: Herhangi Bir Dosya</h3>
+        <input type="file" id="any-input" multiple>
+        <label for="any-input" class="btn-gallery">📄 Herhangi Bir Dosya</label>
+    </div>
+
+    <h3>Log:</h3>
+    <div id="log"></div>
+
+    <script>
+        const log = document.getElementById('log');
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+            log.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            log.scrollTop = log.scrollHeight;
+            console.log(message);
+        }
+
+        function handleFileSelect(e, testName) {
+            addLog(`\n=== ${testName} ===`);
+            addLog(`Event triggered: ${e.type}`);
+            addLog(`Target: ${e.target.id}`);
+
+            try {
+                const files = e.target.files;
+                addLog(`Files object: ${files ? 'exists' : 'null'}`);
+                addLog(`Files length: ${files ? files.length : 0}`);
+
+                if (!files || files.length === 0) {
+                    addLog('❌ Hiç dosya seçilmedi!', 'error');
+                    return;
+                }
+
+                addLog(`✅ ${files.length} dosya seçildi!`, 'success');
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    addLog(`\nDosya ${i + 1}:`);
+                    addLog(`  - İsim: ${file.name}`);
+                    addLog(`  - Boyut: ${(file.size / 1024).toFixed(2)} KB`);
+                    addLog(`  - Tip: ${file.type || 'bilinmiyor'}`);
+                    addLog(`  - Son değişiklik: ${new Date(file.lastModified).toLocaleString()}`);
+
+                    // Dosyayı okumayı dene
+                    const reader = new FileReader();
+                    reader.onload = function (event) {
+                        addLog(`  ✅ Dosya başarıyla okundu! (${(event.target.result.length / 1024).toFixed(2)} KB)`, 'success');
+                    };
+                    reader.onerror = function (error) {
+                        addLog(`  ❌ Dosya okuma hatası: ${error}`, 'error');
+                    };
+
+                    if (file.type.startsWith('image/')) {
+                        reader.readAsDataURL(file);
+                    } else {
+                        addLog(`  ℹ️ Görsel değil, okuma atlandı`);
+                    }
+                }
+
+                // Input'u reset et
+                try {
+                    e.target.value = '';
+                    addLog('Input reset edildi');
+                } catch (err) {
+                    addLog(`⚠️ Input reset hatası: ${err.message}`, 'error');
+                }
+
+            } catch (error) {
+                addLog(`❌ Hata: ${error.message}`, 'error');
+                addLog(`Stack: ${error.stack}`, 'error');
+            }
+        }
+
+        // Event listeners
+        document.getElementById('gallery-input').addEventListener('change', (e) => handleFileSelect(e, 'Galeri/Dosya'));
+        document.getElementById('camera-input').addEventListener('change', (e) => handleFileSelect(e, 'Kamera'));
+        document.getElementById('any-input').addEventListener('change', (e) => handleFileSelect(e, 'Herhangi Dosya'));
+
+        // Sayfa yüklendiğinde
+        addLog('✅ Test sayfası hazır!', 'success');
+        addLog(`User Agent: ${navigator.userAgent}`);
+        addLog(`Platform: ${navigator.platform}`);
+        addLog(`Viewport: ${window.innerWidth}x${window.innerHeight}`);
+    </script>
+</body>
+
+</html>
